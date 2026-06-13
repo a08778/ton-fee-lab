@@ -1,0 +1,81 @@
+#include "imports/stdlib.fc";
+#include "op-codes.fc";
+
+;; default#_ admin:MsgAddress val:^Cell  last_tx_info:^Cell = HolderStorage;
+(slice, cell, cell) load_data() inline {
+    var ds = get_data().begin_parse();
+    return (
+        ds~load_msg_addr(),  ;; admin_address   
+        ds~load_ref(),       ;; val
+        ds~load_maybe_ref()  ;; last tx info
+    );
+}
+
+
+() store_data(slice admin_address, cell val, cell last_tx_info) impure inline {
+     cell data = begin_cell()
+        .store_slice(admin_address)
+        .store_ref(val)
+        .store_maybe_ref(last_tx_info)
+        .end_cell();
+
+    set_data(data);
+}
+
+
+() recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
+
+    if (in_msg_body.slice_empty?()) { ;; ignore all empty messages
+        return ();
+    }
+
+    
+    slice cs = in_msg_full.begin_parse();
+    int flags = cs~load_msg_flags();
+    if (flags & 1) { ;; ignore all bounced messages
+        return ();
+    }
+
+    slice sender_address = cs~load_msg_addr();
+
+    {- load op code and query id (standard message format) -}
+    var (op, query_id) = in_msg_body~load_op_and_query_id();
+
+    {- load state -}
+    var (admin_address, val, _) = load_data(); 
+
+    {- replace#42c435f4 query_id:uint64 val:^Cell last_call:^Cell = HolderInternalMsg; -}
+    if (op == op::replace) 
+    {
+        throw_unless(err::unauthorized, equal_slice_bits(sender_address, admin_address));
+
+        var new_val = in_msg_body~load_ref();
+        in_msg_body.end_parse();
+
+        var last_tx_info = begin_cell()
+            .store_coins(my_balance)
+            .store_coins(msg_value)
+            .store_coins(my_storage_due())
+            .end_cell();
+
+        store_data(admin_address, new_val, last_tx_info);
+        
+        return ();
+    }
+
+    throw(0xffff);  ;; if the message contains an op that is not known to this contract, we throw
+}
+
+
+;;
+;; Get methods
+;;
+(slice, cell) get_holder_data() method_id {
+    var (admin_address, val, _) = load_data(); 
+    return (admin_address, val);
+}
+
+(cell) get_last_tx_info() method_id {
+    var (_, _, last_tx_info) = load_data(); 
+    return (last_tx_info);
+}

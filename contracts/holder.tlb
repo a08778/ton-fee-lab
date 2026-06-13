@@ -1,0 +1,3 @@
+default#_ admin:MsgAddress val:^Cell last_tx_info:^Cell = HolderStorage;
+
+replace#42c435f4 query_id:uint64 val:^Cell = HolderInternalMsg;
